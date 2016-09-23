@@ -25,6 +25,8 @@ namespace Dapper
                 this.addToCache = addToCache;
             }
 
+#if !CSHARP30
+
             /// <summary>
             /// Read the next grid of results, returned as a dynamic object
             /// </summary>
@@ -66,6 +68,7 @@ namespace Dapper
             {
                 return ReadRow<dynamic>(typeof(DapperRow), Row.SingleOrDefault);
             }
+#endif
 
             /// <summary>
             /// Read the next grid of results
@@ -271,6 +274,7 @@ namespace Dapper
                 return buffered ? result.ToList() : result;
             }
 
+#if !CSHARP30
             /// <summary>
             /// Read multiple objects from a single record set on the grid
             /// </summary>
@@ -295,6 +299,7 @@ namespace Dapper
                 var result = MultiReadInternal<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>(func, splitOn);
                 return buffered ? result.ToList() : result;
             }
+#endif
 
             /// <summary>
             /// Read multiple objects from a single record set on the grid

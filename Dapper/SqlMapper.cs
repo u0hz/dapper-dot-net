@@ -57,6 +57,39 @@ namespace Dapper
             handler?.Invoke(null, EventArgs.Empty);
         }
 
+#if CSHARP30
+        private static readonly Dictionary<Identity, CacheInfo> _queryCache = new Dictionary<Identity, CacheInfo>();
+        // note: conflicts between readers and writers are so short-lived that it isn't worth the overhead of
+        // ReaderWriterLockSlim etc; a simple lock is faster
+        private static void SetQueryCache(Identity key, CacheInfo value)
+        {
+            lock (_queryCache) { _queryCache[key] = value; }
+        }
+        private static bool TryGetQueryCache(Identity key, out CacheInfo value)
+        {
+            lock (_queryCache) { return _queryCache.TryGetValue(key, out value); }
+        }
+        private static void PurgeQueryCacheByType(Type type)
+        {
+            lock (_queryCache)
+            {
+                var toRemove = _queryCache.Keys.Where(id => id.type == type).ToArray();
+                foreach (var key in toRemove)
+                    _queryCache.Remove(key);
+            }
+        }
+        /// <summary>
+        /// Purge the query cache 
+        /// </summary>
+        public static void PurgeQueryCache()
+        {
+            lock (_queryCache)
+            {
+                _queryCache.Clear();
+            }
+            OnQueryCachePurged();
+        }
+#else
         static readonly System.Collections.Concurrent.ConcurrentDictionary<Identity, CacheInfo> _queryCache = new System.Collections.Concurrent.ConcurrentDictionary<Identity, CacheInfo>();
         private static void SetQueryCache(Identity key, CacheInfo value)
         {
@@ -166,6 +199,7 @@ namespace Dapper
                    select Tuple.Create(pair.Key, pair.Value);
 
         }
+#endif
 
 
         static Dictionary<Type, DbType> typeMap;
@@ -610,6 +644,7 @@ namespace Dapper
             return new WrappedReader(dbcmd, reader);
         }
 
+#if !CSHARP30
         /// <summary>
         /// Return a sequence of dynamic objects with properties matching the columns
         /// </summary>
@@ -618,7 +653,17 @@ namespace Dapper
         {
             return Query<DapperRow>(cnn, sql, param as object, transaction, buffered, commandTimeout, commandType);
         }
+#else
+        /// <summary>
+        /// Return a list of dynamic objects, reader is closed after the call
+        /// </summary>
+        public static IEnumerable<IDictionary<string, object>> Query(this IDbConnection cnn, string sql, object param = null, IDbTransaction transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null)
+        {
+            return Query<IDictionary<string, object>>(cnn, sql, param, transaction, buffered, commandTimeout, commandType);
+        }
+#endif
 
+#if !CSHARP30
         /// <summary>
         /// Return a dynamic object with properties matching the columns
         /// </summary>
@@ -651,6 +696,7 @@ namespace Dapper
         {
             return QuerySingleOrDefault<DapperRow>(cnn, sql, param as object, transaction, commandTimeout, commandType);
         }
+#endif
 
         /// <summary>
         /// Executes a query, returning the data typed as per T
@@ -1155,6 +1201,8 @@ namespace Dapper
             return MultiMap<TFirst, TSecond, TThird, TFourth, DontMap, DontMap, DontMap, TReturn>(cnn, sql, map, param, transaction, buffered, splitOn, commandTimeout, commandType);
         }
 
+#if !CSHARP30
+
         /// <summary>
         /// Perform a multi mapping query with 5 input parameters
         /// </summary>
@@ -1234,6 +1282,7 @@ namespace Dapper
         {
             return MultiMap<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>(cnn, sql, map, param, transaction, buffered, splitOn, commandTimeout, commandType);
         }
+#endif
 
         /// <summary>
         /// Perform a multi mapping query with arbitrary input parameters
@@ -1419,12 +1468,14 @@ namespace Dapper
                     return r => ((Func<TFirst, TSecond, TThird, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r));
                 case 3:
                     return r => ((Func<TFirst, TSecond, TThird, TFourth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r));
+#if !CSHARP30
                 case 4:
                     return r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r));
                 case 5:
                     return r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r));
                 case 6:
                     return r => ((Func<TFirst, TSecond, TThird, TFourth, TFifth, TSixth, TSeventh, TReturn>)map)((TFirst)deserializer(r), (TSecond)otherDeserializers[0](r), (TThird)otherDeserializers[1](r), (TFourth)otherDeserializers[2](r), (TFifth)otherDeserializers[3](r), (TSixth)otherDeserializers[4](r), (TSeventh)otherDeserializers[5](r));
+#endif
                 default:
                     throw new NotSupportedException();
             }
@@ -1647,12 +1698,19 @@ namespace Dapper
         private static Func<IDataReader, object> GetDeserializer(Type type, IDataReader reader, int startBound, int length, bool returnNullIfFirstMissing)
         {
 
+#if !CSHARP30
             // dynamic is passed in as Object ... by c# design
             if (type == typeof(object)
                 || type == typeof(DapperRow))
             {
                 return GetDapperRowDeserializer(reader, startBound, length, returnNullIfFirstMissing);
             }
+#else
+            if (type.IsAssignableFrom(typeof(Dictionary<string, object>)))
+            {
+                return GetDictionaryDeserializer(reader, startBound, length, returnNullIfFirstMissing);
+            }
+#endif
             Type underlyingType = null;
             if (!(typeMap.ContainsKey(type) || type.IsEnum() || type.FullName == LinqBinary ||
                 (type.IsValueType()  && (underlyingType = Nullable.GetUnderlyingType(type)) != null && underlyingType.IsEnum())))
@@ -1684,6 +1742,7 @@ namespace Dapper
                 return new InvalidOperationException("No columns were selected");
         }
 
+#if !CSHARP30
         internal static Func<IDataReader, object> GetDapperRowDeserializer(IDataRecord reader, int startBound, int length, bool returnNullIfFirstMissing)
         {
             var fieldCount = reader.FieldCount;
@@ -1745,6 +1804,38 @@ namespace Dapper
                     return new DapperRow(table, values);
                 };
         }
+#else
+        internal static Func<IDataReader, object> GetDictionaryDeserializer(IDataRecord reader, int startBound, int length, bool returnNullIfFirstMissing)
+        {
+            var fieldCount = reader.FieldCount;
+            if (length == -1)
+            {
+                length = fieldCount - startBound;
+            }
+
+            if (fieldCount <= startBound)
+            {
+                throw MultiMapException(reader);
+            }
+
+            return
+                 r =>
+                 {
+                     IDictionary<string, object> row = new Dictionary<string, object>(length);
+                     for (var i = startBound; i < startBound + length; i++)
+                     {
+                         var tmp = r.GetValue(i);
+                         tmp = tmp == DBNull.Value ? null : tmp;
+                         row[r.GetName(i)] = tmp;
+                         if (returnNullIfFirstMissing && i == startBound && tmp == null)
+                         {
+                             return null;
+                         }
+                     }
+                     return row;
+                 };
+        }
+#endif
         /// <summary>
         /// Internal use only
         /// </summary>
