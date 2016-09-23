@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>Dapper.Net20</id>
+    <version>1.50.2.0</version>
+    <title>Dapper dot net</title>
+    <authors>Sam Saffron,Marc Gravell</authors>
+    <owners>Sam Saffron,Marc Gravell</owners>
+    <licenseUrl>http://www.apache.org/licenses/LICENSE-2.0</licenseUrl>
+    <projectUrl>https://github.com/StackExchange/dapper-dot-net</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>A high performance Micro-ORM supporting Sql Server, MySQL, Sqlite, SqlCE, Firebird etc..</description>
+    <summary>A high performance Micro-ORM</summary>
+    <releaseNotes>Dapper 1.50.2 for .net 2.0</releaseNotes>
+    <tags>orm sql micro-orm</tags>
+  </metadata>
+</package>
